@@ -3,7 +3,11 @@
     public class UserDataDto
     {
         public string Email { get; set; }
-        public string UserName { get; set; }
-        // Etcetera
+        // Etc.
+
+        public UserDataDto(string email)
+        {
+            Email = email;
+        }
     }
 }

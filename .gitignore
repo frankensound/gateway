@@ -46,6 +46,7 @@ ClientBin/
 *.jfm
 *.pfx
 *.publishsettings
+*.csproj.user
 
 # Visual Studio cache files
 # files ending in .cache can be ignored
