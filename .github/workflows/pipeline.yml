@@ -9,6 +9,7 @@ on:
 
 jobs:
   build-and-test:
+    name: Build and test .NET project
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
@@ -16,7 +17,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v3
       with:
-        dotnet-version: 6.0.x
+        dotnet-version: 8.0.x
     - name: Restore dependencies
       run: dotnet restore
     - name: Build
@@ -61,11 +62,12 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         shell: powershell
         run: |
-          .\.sonar\scanner\dotnet-sonarscanner begin /k:"frankensound2_gateway" /o:"frankensound2" /d:sonar.token="${{ secrets.SONAR_TOKEN }}" /d:sonar.host.url="https://sonarcloud.io"
-          dotnet build --no-restore
+          .\.sonar\scanner\dotnet-sonarscanner begin /k:"frankensound_gateway" /o:"frankensound" /d:sonar.token="${{ secrets.SONAR_TOKEN }}" /d:sonar.host.url="https://sonarcloud.io"
+          dotnet build
           .\.sonar\scanner\dotnet-sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
 
   publish:
+    name: Publish Dockerfile to Dockerhub
     needs: [ build-and-test ]
     runs-on: ubuntu-latest
     steps:
@@ -91,19 +93,24 @@ jobs:
           tags: ${{ secrets.DOCKER_USERNAME }}/gateway:latest
 
   deploy:
-      needs: [ build-and-test, publish, snyk-static-code ]
+      name: Deployment
+      needs: [ build-and-test, publish ]
       runs-on: ubuntu-latest
       steps:
         - name: Finish
           run: echo "Finish deploying"
           shell: bash
 
-  snyk-static-code:
+  snyk:
+      name: Static security analysis with Synk
+      needs: [ build-and-test ]
       runs-on: ubuntu-latest
       permissions:
         security-events: write
       steps:
         - uses: actions/checkout@v3
+        - name: Restore dependencies
+          run: dotnet restore
         - name: Run Snyk to check for vulnerabilities
           uses: snyk/actions/dotnet@master
           continue-on-error: true
