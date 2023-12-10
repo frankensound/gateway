@@ -1,14 +1,8 @@
-using Gateway.Models;
-using Gateway.services;
-using Gateway.Utils;
+using gateway.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Identity;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Prometheus;
-using Swashbuckle.AspNetCore.Filters;
-using System.Text;
 
 namespace gateway
 {
@@ -22,10 +16,6 @@ namespace gateway
 
             var app = builder.Build();
 
-            MigrateDatabase(app);
-
-            await InitializeRolesAsync(app);
-
             ConfigureMiddleware(app);
 
             app.Run();
@@ -33,58 +23,44 @@ namespace gateway
 
         private static void ConfigureServices(WebApplicationBuilder builder)
         {
-            ConfigureSwagger(builder);
 
-            ConfigureCache(builder);
+            var auth0Domain = builder.Configuration["Auth0:Domain"];
+            var auth0ManagementApiAccessToken = builder.Configuration["Auth0:ManagementApiAccessToken"];
+
+            builder.Services.AddCors(options =>
+            {
+                options.AddPolicy("CorsPolicy", policy =>
+                {
+                    policy.WithOrigins("http://localhost:4000")
+                          .AllowAnyHeader()
+                          .AllowAnyMethod();
+                });
+            });
+
+            builder.Services.AddSingleton(new Auth0ManagementService(auth0Domain, auth0ManagementApiAccessToken));
+
+            ConfigureSwagger(builder);
 
             // Enable controllers
             builder.Services.AddControllers();
-
-            ConfigureDatabase(builder);
 
             // Authentication and authorization configuration
             ConfigureSecurity(builder);
 
             // Reverse proxy configuration
             ConfigureReverseProxy(builder);
-
-            // Register TokenBlacklistService
-            builder.Services.AddScoped<TokenBlacklistService>();
-        }
-
-        private static async Task InitializeRolesAsync(WebApplication app)
-        {
-            using (var scope = app.Services.CreateScope())
-            {
-                var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
-                string[] roleNames = { "Admin", "User", "Manager" };
-                foreach (var roleName in roleNames)
-                {
-                    var roleExist = await roleManager.RoleExistsAsync(roleName);
-                    if (!roleExist)
-                    {
-                        await roleManager.CreateAsync(new IdentityRole(roleName));
-                    }
-                }
-            }
-        }
-
-        private static void MigrateDatabase(WebApplication app)
-        {
-            using (var scope = app.Services.CreateScope())
-            {
-                var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
-                dbContext.Database.Migrate();
-            }
         }
 
         private static void ConfigureMiddleware(WebApplication app)
         {
             app.UseSwagger();
-            app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "My API V1"));
+            app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Frankensound API Gateway"));
 
             app.UseAuthentication();
             app.UseRouting();
+
+            app.UseCors("CorsPolicy");
+
             // Enable HTTP metrics for Prometheus
             app.UseHttpMetrics();
             app.UseAuthorization();
@@ -100,7 +76,7 @@ namespace gateway
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddSwaggerGen(options =>
             {
-                options.SwaggerDoc("v1", new OpenApiInfo { Title = "My API", Version = "v1" });
+                options.SwaggerDoc("v1", new OpenApiInfo { Title = "API Gateway", Version = "v1" });
 
                 options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
                 {
@@ -131,65 +107,27 @@ namespace gateway
             });
         }
 
-        private static void ConfigureCache(WebApplicationBuilder builder)
-        {
-            builder.Services.AddStackExchangeRedisCache(options =>
-            {
-                var redisConfig = builder.Configuration.GetSection("Redis")["ConnectionString"];
-                options.Configuration = redisConfig;
-            });
-        }
-
-        private static void ConfigureDatabase(WebApplicationBuilder builder)
-        {
-            builder.Services.AddDbContext<DataContext>(options =>
-                options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
-        }
-
         private static void ConfigureSecurity(WebApplicationBuilder builder)
         {
-            builder.Services.AddIdentity<User, IdentityRole>().AddEntityFrameworkStores<DataContext>();
-
-            var secretKey = builder.Configuration.GetSection("JwtSettings")["SecretKey"];
-
-            builder.Services.AddAuthentication(options =>
+            builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+            .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =>
             {
-                options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-                options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-            }).AddJwtBearer(options =>
-            {
+                options.Authority = $"https://{builder.Configuration.GetValue<string>("Auth0:Domain")}/";
                 options.TokenValidationParameters = new TokenValidationParameters
                 {
-                    ValidateIssuerSigningKey = true,
-                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey)),
-                    ValidateIssuer = false,
-                    ValidateAudience = false
-                };
-                options.Events = new JwtBearerEvents
-                {
-                    OnTokenValidated = async context =>
-                    {
-                        var tokenBlacklistService = context.HttpContext.RequestServices.GetRequiredService<TokenBlacklistService>();
-
-                        // Extract the token from the Authorization header
-                        var authHeader = context.Request.Headers["Authorization"].FirstOrDefault();
-                        if (authHeader == null)
-                        {
-                            context.Fail("Authorization header missing.");
-                            return;
-                        }
-                        var token = authHeader.StartsWith("Bearer ") ? authHeader.Substring(7) : authHeader;
-
-                        if (await tokenBlacklistService.IsTokenBlacklistedAsync(token))
-                        {
-                            // Reject the token if it's blacklisted
-                            context.Fail("This token has been blacklisted.");
-                        }
-                    }
+                    ValidateIssuer = true,
+                    ValidIssuer = $"https://{builder.Configuration["Auth0:Domain"]}/",
+                    ValidateAudience = true,
+                    ValidAudience = builder.Configuration["Auth0:Audience"],
                 };
             });
 
-            builder.Services.AddAuthorization();
+            builder.Services.AddAuthorization(options =>
+            {
+                options.AddPolicy("read:songs", policy => policy.
+                    RequireAuthenticatedUser().
+                    RequireClaim("scope", "read:songs"));
+            });
         }
 
         private static void ConfigureReverseProxy(WebApplicationBuilder builder)
