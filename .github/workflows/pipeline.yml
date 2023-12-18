@@ -1,0 +1,170 @@
+name: CI/CD for API Gateway
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Gateway/**'
+      - 'Accounts/**'
+      - '.github/workflows/pipeline.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project: [Gateway, Accounts]
+        include:
+          - project: Gateway
+            path: 'Gateway/**'
+          - project: Accounts
+            path: 'Accounts/**'
+    if: |
+      contains(github.event.head_commit.modified, matrix.path) ||
+      contains(github.event.head_commit.modified, '.github/workflows/ci-cd.yml')
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore dependencies
+        run: dotnet restore ${{ matrix.project }}
+      - name: Build
+        run: dotnet build --no-restore ${{ matrix.project }}
+      - name: Test
+        run: dotnet test --no-build ${{ matrix.project }}/tests
+
+  sonarcloud:
+    needs: test
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        project: [Gateway, Accounts]
+        include:
+          - project: Gateway
+            path: 'Gateway/**'
+          - project: Accounts
+            path: 'Accounts/**'
+    if: |
+      contains(github.event.head_commit.modified, matrix.path) ||
+      contains(github.event.head_commit.modified, '.github/workflows/ci-cd.yml')
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: 17
+          distribution: 'zulu'
+      - name: Cache SonarCloud packages
+        uses: actions/cache@v3
+        with:
+          path: ~\sonar\cache
+          key: ${{ runner.os }}-sonar-${{ matrix.project }}
+          restore-keys: ${{ runner.os }}-sonar-${{ matrix.project }}
+      - name: Cache SonarCloud scanner
+        id: cache-sonar-scanner
+        uses: actions/cache@v3
+        with:
+          path: .\.sonar\scanner
+          key: ${{ runner.os }}-sonar-scanner-${{ matrix.project }}
+          restore-keys: ${{ runner.os }}-sonar-scanner-${{ matrix.project }}
+      - name: Install SonarCloud scanner
+        if: steps.cache-sonar-scanner.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          New-Item -Path .\.sonar\scanner -ItemType Directory
+          dotnet tool update dotnet-sonarscanner --tool-path .\.sonar\scanner
+      - name: Build and analyze
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        shell: powershell
+        run: |
+          .\.sonar\scanner\dotnet-sonarscanner begin /k:"${{ matrix.sonarProjectKey }}" /o:"${{ matrix.sonarOrganization }}" /d:sonar.login="${{ secrets.SONAR_TOKEN }}" /d:sonar.host.url="https://sonarcloud.io"
+          dotnet build ${{ matrix.project }}
+          .\.sonar\scanner\dotnet-sonarscanner end /d:sonar.login="${{ secrets.SONAR_TOKEN }}"
+
+  snyk:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project: [Gateway, Accounts]
+        include:
+          - project: Gateway
+            path: 'Gateway/**'
+          - project: Accounts
+            path: 'Accounts/**'
+    if: |
+      contains(github.event.head_commit.modified, matrix.path) ||
+      contains(github.event.head_commit.modified, '.github/workflows/ci-cd.yml')
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore dependencies
+        run: dotnet restore ${{ matrix.project }}
+      - name: Run Snyk to check for vulnerabilities
+        uses: snyk/actions/dotnet@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --sarif-file-output=${{ matrix.project }}/snyk.sarif
+      - name: Upload result to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: ${{ matrix.project }}/snyk.sarif
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project: [Gateway, Accounts]
+        include:
+          - project: Gateway
+            path: 'Gateway/**'
+          - project: Accounts
+            path: 'Accounts/**'
+    if: |
+      contains(github.event.head_commit.modified, matrix.path) ||
+      contains(github.event.head_commit.modified, '.github/workflows/ci-cd.yml')
+    steps:
+      - uses: actions/checkout@v3
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./${{ matrix.project }}
+          file: ./${{ matrix.project }}/Dockerfile
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/${{ matrix.project }}:latest
+
+  deploy:
+    needs: [test, publish]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project: [Gateway, Accounts]
+        include:
+          - project: Gateway
+            path: 'Gateway/**'
+          - project: Accounts
+            path: 'Accounts/**'
+    if: |
+      contains(github.event.head_commit.modified, matrix.path) ||
+      contains(github.event.head_commit.modified, '.github/workflows/ci-cd.yml')
+    steps:
+      - name: Finish
+        run: echo "Deploying ${{ matrix.project }}"
+        shell: bash
