@@ -1,6 +1,5 @@
 using Accounts.Interfaces;
 using Accounts.Services;
-using Accounts.Utils;
 using Microsoft.OpenApi.Models;
 using Prometheus;
 
@@ -34,6 +33,8 @@ namespace Accounts
 
                 builder.Services.AddSingleton<IAuth0ManagementService>(new Auth0ManagementService(auth0Domain, auth0ManagementApiAccessToken));
             }
+
+            builder.Services.AddSingleton<IMessagePublisher, RabbitMQClientService>();
 
             ConfigureSwagger(builder);
 

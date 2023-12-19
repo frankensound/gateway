@@ -2,7 +2,7 @@
 using Accounts.Models;
 using Newtonsoft.Json;
 
-namespace Accounts.Utils
+namespace Accounts.Services
 {
     public class MockAuth0ManagementService : IAuth0ManagementService
     {

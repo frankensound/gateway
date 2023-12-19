@@ -9,11 +9,13 @@ namespace Accounts.Controllers
     {
         private readonly IAuth0ManagementService _auth0ManagementService;
         private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly IMessagePublisher _messagePublisher;
 
-        public UserController(IAuth0ManagementService auth0ManagementService, IHttpContextAccessor httpContextAccessor)
+        public UserController(IAuth0ManagementService auth0ManagementService, IHttpContextAccessor httpContextAccessor, IMessagePublisher messagePublisher)
         {
             _auth0ManagementService = auth0ManagementService;
             _httpContextAccessor = httpContextAccessor;
+            _messagePublisher = messagePublisher;
         }
 
         private string GetUserId()
@@ -44,8 +46,17 @@ namespace Accounts.Controllers
         public async Task<IActionResult> DeleteProfile()
         {
             var userId = GetUserId();
-            await _auth0ManagementService.DeleteUserAsync(userId);
-            return Ok("User deleted successfully.");
+            bool isDeleted = await _auth0ManagementService.DeleteUserAsync(userId);
+
+            if (isDeleted)
+            {
+                _messagePublisher.Publish("deleted_users_queue", $"UserDeleted:{userId}");
+                return Ok("User deleted successfully.");
+            }
+            else
+            {
+                return StatusCode(500, "Unable to delete user.");
+            }
         }
     }
 }
