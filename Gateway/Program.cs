@@ -26,7 +26,6 @@ namespace Gateway
 
         private static void ConfigureServices(WebApplicationBuilder builder)
         {
-
             var auth0Domain = builder.Configuration["Auth0:Domain"];
 
             builder.Services.AddCors(options =>
@@ -66,6 +65,9 @@ namespace Gateway
             app.UseHttpMetrics();
 
             app.UseAuthorization();
+
+            // Custom metrics to measure response time
+            app.UseMiddleware<ResponseTimeMiddleware>();
 
             app.MapControllers();
 

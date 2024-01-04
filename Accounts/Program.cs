@@ -1,5 +1,6 @@
 using Accounts.Interfaces;
 using Accounts.Services;
+using Accounts.Utils;
 using Microsoft.OpenApi.Models;
 using Prometheus;
 
@@ -53,6 +54,10 @@ namespace Accounts
 
             // Enable HTTP metrics for Prometheus
             app.UseHttpMetrics();
+
+
+            // Custom metrics to measure response time
+            app.UseMiddleware<ResponseTimeMiddleware>();
 
             app.MapControllers();
 
