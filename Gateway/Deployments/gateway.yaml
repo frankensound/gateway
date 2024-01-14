@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  labels:
+    app: gateway
+
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      containers:
+        - name: gateway
+          image: marinastancu/gateway:latest
+          ports:
+            - containerPort: 5000
+          env:
+            - name: Auth0__Domain
+              valueFrom:
+                secretKeyRef:
+                  name: auth0
+                  key: DOMAIN
+            - name: Auth0__Audience
+              valueFrom:
+                secretKeyRef:
+                  name: auth0
+                  key: AUDIENCE
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Development"
+            - name: ReverseProxy__Clusters__songs__Destinations__destination__Address
+              valueFrom:
+                configMapKeyRef:
+                  name: configmap
+                  key: songs
+            - name: ReverseProxy__Clusters__accounts__Destinations__destination__Address
+              valueFrom:
+                configMapKeyRef:
+                  name: configmap
+                  key: accounts
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway-service
+  labels:
+    job: gateway-job
+    app: gateway-service
+spec:
+  selector:
+    app: gateway
+  type: LoadBalancer
+  ports:
+    - port: 80
+      targetPort: http

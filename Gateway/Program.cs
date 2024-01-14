@@ -4,6 +4,8 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Prometheus;
+using Serilog.Events;
+using Serilog;
 using System.IdentityModel.Tokens.Jwt;
 using Yarp.ReverseProxy.Transforms;
 
@@ -14,6 +16,21 @@ namespace Gateway
         public static async Task Main(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);
+
+            // Configure Serilog
+            Log.Logger = new LoggerConfiguration()
+                .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+                .Enrich.FromLogContext()
+                .WriteTo.File(
+                    path: "logs/errors.txt",
+                    rollingInterval: RollingInterval.Day,
+                    retainedFileCountLimit: 30, // Retain logs for 30 days
+                    fileSizeLimitBytes: 10_000_000, // 10 MB file size limit
+                    restrictedToMinimumLevel: LogEventLevel.Error)
+                .CreateLogger();
+
+            builder.Logging.ClearProviders();
+            builder.Logging.AddSerilog(); // Use Serilog for logging
 
             ConfigureServices(builder);
 
@@ -168,7 +185,8 @@ namespace Gateway
 
                                    if (!string.IsNullOrEmpty(userId))
                                    {
-                                        transformContext.ProxyRequest.Headers.Add("X-User-ID", userId);
+                                        transformContext.ProxyRequest.Headers.Add("UserID", userId);
+                                        Log.Information($"UserID header set: {userId}");
                                    }
                                }
                            });

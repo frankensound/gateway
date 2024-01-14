@@ -3,6 +3,8 @@ using Accounts.Services;
 using Accounts.Utils;
 using Microsoft.OpenApi.Models;
 using Prometheus;
+using Serilog.Events;
+using Serilog;
 
 namespace Accounts
 {
@@ -12,13 +14,44 @@ namespace Accounts
         {
             var builder = WebApplication.CreateBuilder(args);
 
+            // Configure Serilog
+            Log.Logger = new LoggerConfiguration()
+                .MinimumLevel.Debug()
+                .Enrich.FromLogContext()
+                .WriteTo.Console()
+                .WriteTo.File(
+                    path: "logs/errors.txt",
+                    rollingInterval: RollingInterval.Day,
+                    retainedFileCountLimit: 30, // Retain logs for 30 days
+                    fileSizeLimitBytes: 10_000_000, // 10 MB file size limit
+                    outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
+                .CreateLogger();
+
+            builder.Logging.ClearProviders();
+            builder.Logging.AddSerilog();
+
             ConfigureServices(builder);
 
             var app = builder.Build();
 
             ConfigureMiddleware(app);
 
+            var rabbitMQClientService = app.Services.GetService<RabbitMQClientService>();
+            if (rabbitMQClientService != null)
+            {
+                // Start consuming messages in a non-blocking way
+                var cts = new CancellationTokenSource();
+                Task.Run(() => rabbitMQClientService.Consume("yourQueueName", OnMessageReceived, cts.Token));
+
+                app.Lifetime.ApplicationStopping.Register(() => cts.Cancel());
+            }
+
             app.Run();
+
+            void OnMessageReceived(string message)
+            {
+                Console.WriteLine("Message received: " + message);
+            }
         }
 
         private static void ConfigureServices(WebApplicationBuilder builder)
@@ -36,6 +69,7 @@ namespace Accounts
             }
 
             builder.Services.AddSingleton<IMessagePublisher, RabbitMQClientService>();
+            builder.Services.AddSingleton<MongoDbService>();
 
             ConfigureSwagger(builder);
 

@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: accounts
+  labels:
+    app: accounts
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: accounts
+  template:
+    metadata:
+      labels:
+        app: accounts
+    spec:
+      containers:
+        - name: accounts
+          image: marinastancu/accounts:latest
+          ports:
+            - containerPort: 5001
+          env:
+            - name: Auth0__Domain
+              valueFrom:
+                secretKeyRef:
+                  name: auth0
+                  key: DOMAIN
+            - name: Auth0__ManagementApiAccessToken
+              valueFrom:
+                secretKeyRef:
+                  name: auth0
+                  key: TOKEN
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Development"
+            - name: RabbitMQ__HostName
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq
+                  key: HOST
+            - name: RabbitMQ__QueueName
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq
+                  key: USER_QUEUE
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: accounts-service
+spec:
+  selector:
+    app: accounts
+  ports:
+    - protocol: TCP
+      port: 5001

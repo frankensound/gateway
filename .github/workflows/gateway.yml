@@ -97,9 +97,18 @@ jobs:
       needs: [ test, publish ]
       runs-on: ubuntu-latest
       steps:
-        - name: Finish
-          run: echo "Finish deploying"
-          shell: bash
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Set AZURE_CORE_OUTPUT to None
+        run: echo "AZURE_CORE_OUTPUT=none" >> $GITHUB_ENV
+      - name: Set AKS Context
+        run: az aks get-credentials --name dev-frankencluster --resource-group frankengroup
+      - name: Deploy to AKS
+        run: kubectl apply -f ./Gateway/Deployments
 
   snyk-code:
       name: Static code security analysis with Synk
