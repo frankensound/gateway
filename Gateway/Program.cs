@@ -19,14 +19,15 @@ namespace Gateway
 
             // Configure Serilog
             Log.Logger = new LoggerConfiguration()
-                .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+                .MinimumLevel.Debug()
                 .Enrich.FromLogContext()
+                .WriteTo.Console()
                 .WriteTo.File(
                     path: "logs/errors.txt",
                     rollingInterval: RollingInterval.Day,
                     retainedFileCountLimit: 30, // Retain logs for 30 days
                     fileSizeLimitBytes: 10_000_000, // 10 MB file size limit
-                    restrictedToMinimumLevel: LogEventLevel.Error)
+                    outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
                 .CreateLogger();
 
             builder.Logging.ClearProviders();

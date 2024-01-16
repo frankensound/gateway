@@ -109,6 +109,8 @@ jobs:
         run: az aks get-credentials --name dev-frankencluster --resource-group frankengroup
       - name: Deploy to AKS
         run: kubectl apply -f ./Gateway/Deployments
+      - name: Restart Deployment
+        run: kubectl rollout restart deployment/gateway    
 
   snyk-code:
       name: Static code security analysis with Synk

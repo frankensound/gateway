@@ -23,7 +23,7 @@ namespace Gateway.Utils
             {
                 stopwatch.Stop();
                 MetricsRegistry.ResponseTimeHistogram
-                    .WithLabels(context.Request.Method, context.Request.Path)
+                    .WithLabels(context.Request.Method, context.Request.Path, "gateway")
                     .Observe(stopwatch.Elapsed.TotalMilliseconds / 1000); // Converting milliseconds to seconds
             }
         }

@@ -23,7 +23,7 @@ namespace Accounts.Utils
             {
                 stopwatch.Stop();
                 MetricsRegistry.ResponseTimeHistogram
-                    .WithLabels(context.Request.Method, context.Request.Path)
+                    .WithLabels(context.Request.Method, context.Request.Path, "accounts")
                     .Observe(stopwatch.Elapsed.TotalMilliseconds / 1000); // Converting milliseconds to seconds
             }
         }

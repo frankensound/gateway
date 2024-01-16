@@ -17,6 +17,7 @@ spec:
       containers:
         - name: accounts
           image: marinastancu/accounts:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 5001
           env:

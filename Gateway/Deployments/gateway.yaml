@@ -18,6 +18,7 @@ spec:
       containers:
         - name: gateway
           image: marinastancu/gateway:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 5000
           env:
