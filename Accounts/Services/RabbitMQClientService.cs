@@ -25,8 +25,9 @@ namespace Accounts.Services
                 {
                     ServerName = configuration["RabbitMQ:HostName"],
                     Enabled = true
-                }
-            };
+                },
+                Uri = new Uri($"amqps://{configuration["RabbitMQ:HostName"]}:{Convert.ToInt32(configuration["RabbitMQ:Port"])}")
+        };
             _mongoDbService = mongoDbService;
         }
 
