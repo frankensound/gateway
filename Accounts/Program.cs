@@ -35,22 +35,27 @@ namespace Accounts
             var app = builder.Build();
 
             ConfigureMiddleware(app);
-
-            var rabbitMQClientService = app.Services.GetService<RabbitMQClientService>();
-            if (rabbitMQClientService != null)
+            try
             {
-                // Start consuming messages in a non-blocking way
-                var cts = new CancellationTokenSource();
-                Task.Run(() => rabbitMQClientService.Consume("yourQueueName", OnMessageReceived, cts.Token));
+                var configuration = app.Services.GetService<IConfiguration>();
+                var rabbitMQClientService = app.Services.GetService<RabbitMQClientService>();
+                if (rabbitMQClientService != null)
+                {
+                    var queueName = configuration.GetValue<string>("RabbitMQ:QueueName:Data");
+                    var cts = new CancellationTokenSource();
+                    await Task.Run(() => rabbitMQClientService.Consume(queueName, cts.Token));
 
-                app.Lifetime.ApplicationStopping.Register(() => cts.Cancel());
+                    app.Lifetime.ApplicationStopping.Register(() => cts.Cancel());
+                }
+                else
+                {
+                    Console.WriteLine($"RabbitMQ service could not be found.");
+                }
+                app.Run();
             }
-
-            app.Run();
-
-            void OnMessageReceived(string message)
+            catch (Exception ex)
             {
-                Console.WriteLine("Message received: " + message);
+                Console.WriteLine($"Error in setting up RabbitMQ consumer: {ex}");
             }
         }
 
@@ -67,14 +72,14 @@ namespace Accounts
 
                 builder.Services.AddSingleton<IAuth0ManagementService>(new Auth0ManagementService(auth0Domain, auth0ManagementApiAccessToken));
             }
-
-            builder.Services.AddSingleton<IMessagePublisher, RabbitMQClientService>();
             builder.Services.AddSingleton<MongoDbService>();
 
             ConfigureSwagger(builder);
 
             // Enable controllers
             builder.Services.AddControllers();
+
+            builder.Services.AddSingleton<RabbitMQClientService>();
 
             builder.Services.AddHttpContextAccessor();
         }

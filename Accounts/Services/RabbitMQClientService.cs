@@ -8,52 +8,83 @@ using System.Text;
 
 namespace Accounts.Services
 {
-    public class RabbitMQClientService : IMessagePublisher, IMessageConsumer
+    public class RabbitMQClientService : IMessagePublisher
     {
         private readonly ConnectionFactory _connectionFactory;
         private readonly MongoDbService _mongoDbService;
 
-        public RabbitMQClientService(IConfiguration configuration)
+        public RabbitMQClientService(IConfiguration configuration, MongoDbService mongoDbService)
         {
             _connectionFactory = new ConnectionFactory
             {
-                HostName = configuration["RabbitMQ:HostName"]
+                HostName = configuration["RabbitMQ:HostName"],
+                Port = Convert.ToInt32(configuration["RabbitMQ:Port"]),
+                UserName = configuration["RabbitMQ:UserName"],
+                Password = configuration["RabbitMQ:Password"],
+                Ssl = new SslOption
+                {
+                    ServerName = configuration["RabbitMQ:HostName"],
+                    Enabled = true
+                }
             };
+            _mongoDbService = mongoDbService;
         }
 
         public void Publish(string queue, string message)
         {
-            using var connection = _connectionFactory.CreateConnection();
-            using var channel = connection.CreateModel();
+            try
+            {
+                using var connection = _connectionFactory.CreateConnection();
+                using var channel = connection.CreateModel();
 
-            DeclareQueue(channel, queue);
+                DeclareQueue(channel, queue);
 
-            var body = Encoding.UTF8.GetBytes(message);
-            channel.BasicPublish(exchange: "", routingKey: queue, basicProperties: null, body: body);
+                var body = Encoding.UTF8.GetBytes(message);
+                channel.BasicPublish(exchange: "", routingKey: queue, basicProperties: null, body: body);
+
+                Console.WriteLine($"[x] Sent '{message}'");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in publishing message: {ex.Message}");
+            }
         }
 
-        public void Consume(string queue, Action<string> onMessage, CancellationToken cancellationToken)
+        public void Consume(string queue, CancellationToken cancellationToken)
         {
-            var connection = _connectionFactory.CreateConnection();
-            var channel = connection.CreateModel();
-
-            DeclareQueue(channel, queue);
-
-            var consumer = new EventingBasicConsumer(channel);
-            consumer.Received += (model, ea) =>
+            try
             {
-                var body = ea.Body.ToArray();
-                var message = Encoding.UTF8.GetString(body);
-                ProcessReceivedMessage(message, onMessage, cancellationToken);
-            };
+                var connection = _connectionFactory.CreateConnection();
+                var channel = connection.CreateModel();
 
-            channel.BasicConsume(queue: queue, autoAck: false, consumer: consumer);
+                DeclareQueue(channel, queue);
 
-            cancellationToken.WaitHandle.WaitOne();
+                var consumer = new EventingBasicConsumer(channel);
+                consumer.Received += (model, ea) =>
+                {
+                    var body = ea.Body.ToArray();
+                    var message = Encoding.UTF8.GetString(body);
 
-            // Clean up resources after cancellation
-            channel.Close();
-            connection.Close();
+                    Console.WriteLine($"Received: '{message}'");
+
+                    // Process the received message here instead of using onMessage action
+                    ProcessReceivedMessage(message);
+
+                    // Acknowledge the message
+                    channel.BasicAck(deliveryTag: ea.DeliveryTag, multiple: false);
+                };
+
+                channel.BasicConsume(queue: queue, autoAck: false, consumer: consumer);
+
+                cancellationToken.WaitHandle.WaitOne();
+
+                channel.Close();
+                connection.Close();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in consuming message: {ex}");
+            }
         }
 
         private void DeclareQueue(IModel channel, string queueName)
@@ -68,7 +99,7 @@ namespace Accounts.Services
                 var json = JObject.Parse(message);
 
                 // Check for the existence of required fields in the JSON
-                if (!json.ContainsKey("userId") || !json.ContainsKey("activity"))
+                if (!json.ContainsKey("userId") || !json.ContainsKey("actionType"))
                 {
                     return (null, null, "Invalid message format: Required fields are missing.");
                 }
@@ -76,7 +107,7 @@ namespace Accounts.Services
                 var activity = new UserActivity
                 {
                     Date = json["date"]?.ToObject<DateTime>() ?? DateTime.UtcNow, // Default to current time if date is not provided
-                    Activity = json["activity"].ToString(),
+                    Activity = json["actionType"].ToString(),
                     ObjectId = json["objectId"]?.ToObject<int>() ?? 0 // Default to 0 if objectId is not provided
                 };
                 var userId = json["userId"].ToString();
@@ -95,22 +126,27 @@ namespace Accounts.Services
             }
         }
 
-        private void ProcessReceivedMessage(string message, Action<string> onMessage, CancellationToken cancellationToken)
+        private void ProcessReceivedMessage(string message)
         {
-            var (userId, activity, errorMessage) = TranslateToUserActivity(message);
-
-            if (!string.IsNullOrEmpty(errorMessage))
+            try
             {
-                // Log the error message or handle it as needed
-                Console.WriteLine($"Error processing message: {errorMessage}");
-            }
-            else if (activity != null)
-            {
-                _mongoDbService.AddOrUpdateUserProfile(userId, activity);
-            }
+                var (userId, activity, errorMessage) = TranslateToUserActivity(message);
 
-            // Process messages in parallel
-            Task.Run(() => onMessage(message), cancellationToken);
+                if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    Console.WriteLine($"Error processing message: {errorMessage}");
+                    return;
+                }
+
+                if (activity != null)
+                {
+                    _mongoDbService.AddOrUpdateUserProfile(userId, activity);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in processing received message: {ex.Message}");
+            }
         }
     }
 }
