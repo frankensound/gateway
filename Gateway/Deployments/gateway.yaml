@@ -33,17 +33,13 @@ spec:
                   name: auth0
                   key: AUDIENCE
             - name: ASPNETCORE_ENVIRONMENT
-              value: "Development"
+              value: "Release"
             - name: ReverseProxy__Clusters__songs__Destinations__destination__Address
-              valueFrom:
-                configMapKeyRef:
-                  name: configmap
-                  key: songs
+              value: "http://songs-service.default.svc.cluster.local:8080"
             - name: ReverseProxy__Clusters__accounts__Destinations__destination__Address
-              valueFrom:
-                configMapKeyRef:
-                  name: configmap
-                  key: accounts
+              value: "http://accounts-service.default.svc.cluster.local:5001"
+            - name: ReverseProxy__Clusters__history__Destinations__destination__Address
+              value: "http://history-service.default.svc.cluster.local:3000"
 ---
 apiVersion: v1
 kind: Service
